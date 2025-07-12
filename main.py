@@ -5,6 +5,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 import io
 
+from tsplot.plot_types.bin_scatter import bin_scatter
+
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
 
 if 'data' not in st.session_state:
@@ -94,7 +96,7 @@ else:
         
         plot_type = st.selectbox(
             "Chart type",
-            ["Line", "Scatter", "Bar", "Area"],
+            ["Line", "Scatter", "Bar", "Area", "Bin Scatter"],
             help="Select the type of chart"
         )
         
@@ -107,6 +109,51 @@ else:
             value=500,
             step=50
         )
+        
+        # Plot-specific parameters
+        st.markdown("#### Plot Parameters")
+        
+        plot_params = {}
+        
+        if plot_type == "Bin Scatter":
+            plot_params['bin_size'] = st.slider(
+                "Number of bins",
+                min_value=5,
+                max_value=50,
+                value=10,
+                help="Number of bins to group data into"
+            )
+            plot_params['bin_plot_type'] = st.selectbox(
+                "Bin plot style",
+                ["scatter", "bar"],
+                help="Display bins as scatter points or bars"
+            )
+        elif plot_type == "Line":
+            plot_params['line_smoothing'] = st.slider(
+                "Line smoothing",
+                min_value=0.0,
+                max_value=1.3,
+                value=0.0,
+                step=0.1,
+                help="Apply smoothing to line plots"
+            )
+        elif plot_type == "Scatter":
+            plot_params['marker_size'] = st.slider(
+                "Marker size",
+                min_value=2,
+                max_value=20,
+                value=6,
+                help="Size of scatter plot markers"
+            )
+        elif plot_type == "Bar":
+            plot_params['bar_width'] = st.slider(
+                "Bar width",
+                min_value=0.1,
+                max_value=1.0,
+                value=0.8,
+                step=0.1,
+                help="Width of bars relative to available space"
+            )
         
         st.markdown("---")
         
@@ -157,35 +204,55 @@ else:
         fig = go.Figure()
         
         # Add traces based on plot type
-        for col in value_cols:
-            if plot_type == "Line":
-                fig.add_trace(go.Scatter(
-                    x=plot_df[time_col],
-                    y=plot_df[col],
-                    mode='lines+markers' if show_markers else 'lines',
-                    name=col
-                ))
-            elif plot_type == "Scatter":
-                fig.add_trace(go.Scatter(
-                    x=plot_df[time_col],
-                    y=plot_df[col],
-                    mode='markers',
-                    name=col
-                ))
-            elif plot_type == "Bar":
-                fig.add_trace(go.Bar(
-                    x=plot_df[time_col],
-                    y=plot_df[col],
-                    name=col
-                ))
-            elif plot_type == "Area":
-                fig.add_trace(go.Scatter(
-                    x=plot_df[time_col],
-                    y=plot_df[col],
-                    mode='lines',
-                    fill='tozeroy',
-                    name=col
-                ))
+        if plot_type == "Bin Scatter":
+            # Handle bin scatter separately since it creates a complete figure
+            for i, col in enumerate(value_cols):
+                bin_fig = bin_scatter(
+                    plot_df, 
+                    time_col, 
+                    col, 
+                    bin_size=plot_params.get('bin_size', 10),
+                    plot_type=plot_params.get('bin_plot_type', 'scatter')
+                )
+                # Add traces from bin_scatter to main figure
+                for trace in bin_fig.data:
+                    trace.name = f"{col} (binned)"
+                    fig.add_trace(trace)
+        else:
+            for col in value_cols:
+                if plot_type == "Line":
+                    scatter_trace = go.Scatter(
+                        x=plot_df[time_col],
+                        y=plot_df[col],
+                        mode='lines+markers' if show_markers else 'lines',
+                        name=col
+                    )
+                    if 'line_smoothing' in plot_params and plot_params['line_smoothing'] > 0:
+                        scatter_trace.line = dict(smoothing=plot_params['line_smoothing'])
+                    fig.add_trace(scatter_trace)
+                elif plot_type == "Scatter":
+                    fig.add_trace(go.Scatter(
+                        x=plot_df[time_col],
+                        y=plot_df[col],
+                        mode='markers',
+                        marker=dict(size=plot_params.get('marker_size', 6)),
+                        name=col
+                    ))
+                elif plot_type == "Bar":
+                    fig.add_trace(go.Bar(
+                        x=plot_df[time_col],
+                        y=plot_df[col],
+                        width=plot_params.get('bar_width', 0.8),
+                        name=col
+                    ))
+                elif plot_type == "Area":
+                    fig.add_trace(go.Scatter(
+                        x=plot_df[time_col],
+                        y=plot_df[col],
+                        mode='lines',
+                        fill='tozeroy',
+                        name=col
+                    ))
         
         # Update layout
         fig.update_layout(
