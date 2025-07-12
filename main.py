@@ -7,6 +7,7 @@ import io
 
 from tsplot.plot_types.bin_scatter import bin_scatter
 from tsplot.transforms import apply_transform
+from tsplot.data_processor import DataProcessor
 
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
 
@@ -14,6 +15,8 @@ if 'data' not in st.session_state:
     st.session_state.data = None
 if 'file_uploaded' not in st.session_state:
     st.session_state.file_uploaded = False
+if 'data_processor' not in st.session_state:
+    st.session_state.data_processor = None
 
 # File upload
 if not st.session_state.file_uploaded:
@@ -36,6 +39,7 @@ if not st.session_state.file_uploaded:
             
             # Store in session state
             st.session_state.data = df
+            st.session_state.data_processor = DataProcessor(df)
             st.session_state.file_uploaded = True
             st.session_state.filename = uploaded_file.name
             st.rerun()
@@ -46,58 +50,109 @@ if not st.session_state.file_uploaded:
 # Main dashboard
 else:
     df = st.session_state.data
+    processor = st.session_state.data_processor
     
     # Sidebar for settings
     with st.sidebar:
         st.title("Dashboard Settings")
         
-        # File info
-        st.markdown("### Data Info")
-        st.info(f"File: {st.session_state.filename}")
-        st.info(f"Rows: {len(df):,}")
-        st.info(f"Columns: {len(df.columns)}")
+        # Analysis mode selector
+        st.markdown("### Analysis Mode")
+        analysis_mode = st.selectbox(
+            "Select analysis type",
+            ["Univariate Analysis", "Time Series Analysis", "Correlation Analysis"],
+            help="Choose the type of analysis to perform"
+        )
         
         st.markdown("---")
         
-        # Column selection
+
+        # Column selection (mode-aware)
         st.markdown("### Column Selection")
         
-        # Detect datetime columns
-        datetime_cols = []
-        numeric_cols = []
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                try:
-                    pd.to_datetime(df[col])
-                    datetime_cols.append(col)
-                except:
-                    pass
-            elif pd.api.types.is_numeric_dtype(df[col]):
-                numeric_cols.append(col)
+        # Get column options
+        datetime_cols = processor.get_column_options('datetime')
+        numeric_cols = processor.get_column_options('numeric')
         
-        # Time column selection
+        # Time column selection (common to all modes)
         time_col = st.selectbox(
             "Select time column",
-            options=datetime_cols if datetime_cols else df.columns.tolist(),
+            options=datetime_cols,
             help="Select the column containing timestamps"
         )
         
-        # Value columns selection
-        value_cols = st.multiselect(
-            "Select value columns to plot",
-            options=numeric_cols if numeric_cols else df.columns.tolist(),
-            default=numeric_cols[:2] if len(numeric_cols) >= 2 else numeric_cols,
-            help="Select one or more numeric columns to visualize"
-        )
+        # Mode-specific column selection
+        if analysis_mode == "Univariate Analysis":
+            value_cols = st.multiselect(
+                "Select value columns to plot",
+                options=numeric_cols,
+                default=numeric_cols[:2] if len(numeric_cols) >= 2 else numeric_cols,
+                help="Select one or more numeric columns to visualize"
+            )
+            x_col = None
+            y_col = None
+            lag = 0
+            shift = 0
+            
+        elif analysis_mode == "Time Series Analysis":
+            value_col = st.selectbox(
+                "Select value column",
+                options=numeric_cols,
+                help="Select the numeric column to analyze"
+            )
+            lag = st.number_input(
+                "Lag periods",
+                min_value=1,
+                max_value=100,
+                value=1,
+                help="Number of periods to shift for comparison"
+            )
+            value_cols = [value_col] if value_col else []
+            x_col = None
+            y_col = value_col
+            shift = lag
+            
+        elif analysis_mode == "Correlation Analysis":
+            col1, col2 = st.columns(2)
+            with col1:
+                x_col = st.selectbox(
+                    "Select X column",
+                    options=numeric_cols,
+                    help="First variable for correlation analysis"
+                )
+            with col2:
+                y_col = st.selectbox(
+                    "Select Y column", 
+                    options=numeric_cols,
+                    index=1 if len(numeric_cols) > 1 else 0,
+                    help="Second variable for correlation analysis"
+                )
+            
+            shift = st.number_input(
+                "Shift Y column",
+                min_value=-50,
+                max_value=50,
+                value=0,
+                help="Number of periods to shift Y column (negative = advance, positive = delay)"
+            )
+            value_cols = [x_col, y_col] if x_col and y_col else []
         
         st.markdown("---")
         
-        # Plot settings
+        # Plot settings (mode-aware)
         st.markdown("### Plot Settings")
+        
+        # Plot type options based on analysis mode
+        if analysis_mode == "Univariate Analysis":
+            plot_options = ["Line", "Scatter", "Bar", "Area", "Bin Scatter"]
+        elif analysis_mode == "Time Series Analysis":
+            plot_options = ["Time Series", "Lag Plot", "Autocorrelation"]
+        elif analysis_mode == "Correlation Analysis":
+            plot_options = ["Time Series", "Scatter", "Cross Correlation"]
         
         plot_type = st.selectbox(
             "Chart type",
-            ["Line", "Scatter", "Bar", "Area", "Bin Scatter"],
+            plot_options,
             help="Select the type of chart"
         )
         
@@ -228,125 +283,125 @@ else:
     else:
         filtered_df = df.copy()
     
-    # Create plot based on settings
-    if value_cols and time_col:
-        # Prepare data for plotting
-        plot_df = filtered_df[[time_col] + value_cols].copy()
-        plot_df = plot_df.sort_values(time_col)
+    # Create analysis and plot
+    try:
+        # Validate inputs based on analysis mode
+        analysis_params = {
+            'time_col': time_col,
+            'value_cols': value_cols,
+            'x_col': x_col,
+            'y_col': y_col,
+            'lag': lag if analysis_mode == "Time Series Analysis" else None,
+            'shift': shift if analysis_mode == "Correlation Analysis" else None
+        }
         
-        # Apply transforms to value columns
-        if transform_type != "none":
-            for col in value_cols:
-                try:
-                    plot_df[col] = apply_transform(plot_df[col], transform_type, **transform_params)
-                except Exception as e:
-                    st.warning(f"Transform failed for column {col}: {str(e)}")
-                    continue
+        # Clean up params based on mode
+        if analysis_mode == "Univariate Analysis":
+            analysis_params = {'time_col': time_col, 'value_cols': value_cols}
+        elif analysis_mode == "Time Series Analysis":
+            analysis_params = {'time_col': time_col, 'value_col': y_col, 'lag': lag}
+        elif analysis_mode == "Correlation Analysis":
+            analysis_params = {'time_col': time_col, 'x_col': x_col, 'y_col': y_col, 'shift': shift}
         
-        # Create figure
-        fig = go.Figure()
+        # Validate parameters
+        is_valid, validation_message = processor.validate_analysis_params(analysis_mode, **analysis_params)
         
-        # Add traces based on plot type
-        if plot_type == "Bin Scatter":
-            # Handle bin scatter separately since it creates a complete figure
-            for i, col in enumerate(value_cols):
-                bin_fig = bin_scatter(
-                    plot_df, 
-                    time_col, 
-                    col, 
-                    bin_size=plot_params.get('bin_size', 10),
-                    plot_type=plot_params.get('bin_plot_type', 'scatter')
-                )
-                # Add traces from bin_scatter to main figure
-                for trace in bin_fig.data:
-                    trace.name = f"{col} (binned)"
-                    fig.add_trace(trace)
+        if not is_valid:
+            st.warning(f"Invalid parameters: {validation_message}")
         else:
-            for col in value_cols:
-                if plot_type == "Line":
-                    scatter_trace = go.Scatter(
-                        x=plot_df[time_col],
-                        y=plot_df[col],
-                        mode='lines+markers' if show_markers else 'lines',
-                        name=col
-                    )
-                    if 'line_smoothing' in plot_params and plot_params['line_smoothing'] > 0:
-                        scatter_trace.line = dict(smoothing=plot_params['line_smoothing'])
-                    fig.add_trace(scatter_trace)
-                elif plot_type == "Scatter":
-                    fig.add_trace(go.Scatter(
-                        x=plot_df[time_col],
-                        y=plot_df[col],
-                        mode='markers',
-                        marker=dict(size=plot_params.get('marker_size', 6)),
-                        name=col
-                    ))
-                elif plot_type == "Bar":
-                    fig.add_trace(go.Bar(
-                        x=plot_df[time_col],
-                        y=plot_df[col],
-                        width=plot_params.get('bar_width', 0.8),
-                        name=col
-                    ))
-                elif plot_type == "Area":
-                    fig.add_trace(go.Scatter(
-                        x=plot_df[time_col],
-                        y=plot_df[col],
-                        mode='lines',
-                        fill='tozeroy',
-                        name=col
-                    ))
-        
-        # Update layout
-        fig.update_layout(
-            title=f"{plot_type} Chart: {', '.join(value_cols)}",
-            xaxis_title=time_col,
-            yaxis_title="Values",
-            height=plot_height,
-            hovermode='x unified',
-            showlegend=True if len(value_cols) > 1 else False
-        )
-        
-        # Display plot
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Additional info tabs
-        tab1, tab2, tab3 = st.tabs(["Summary Statistics", "Data Preview", "Export"])
-        
-        with tab1:
-            st.markdown("### Summary Statistics")
-            summary_df = filtered_df[value_cols].describe()
-            st.dataframe(summary_df, use_container_width=True)
-        
-        with tab2:
-            st.markdown("### Data Preview")
-            st.dataframe(
-                filtered_df[[time_col] + value_cols].head(100),
-                use_container_width=True
+            # Create analysis object
+            analysis = processor.create_analysis(analysis_mode, **analysis_params)
+            
+            # Create plot
+            fig = analysis.create_plot(
+                plot_type=plot_type,
+                date_range=date_range if 'date_range' in locals() else None,
+                transform_type=transform_type,
+                transform_params=transform_params,
+                plot_params=plot_params,
+                show_markers=show_markers
             )
-        
-        with tab3:
-            st.markdown("### Export Options")
-            col1, col2 = st.columns(2)
             
-            with col1:
-                # Export filtered data as CSV
-                csv = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label="Download filtered data as CSV",
-                    data=csv,
-                    file_name=f"filtered_{st.session_state.filename}",
-                    mime="text/csv"
-                )
+            # Update layout
+            fig.update_layout(height=plot_height)
             
-            with col2:
-                # Export plot as HTML
-                html = fig.to_html(include_plotlyjs='cdn')
-                st.download_button(
-                    label="Download plot as HTML",
-                    data=html,
-                    file_name="plot.html",
-                    mime="text/html"
-                )
-    else:
-        st.warning("Please select time column and at least one value column from the sidebar.")
+            # Display plot
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Additional info tabs
+            tab1, tab2, tab3 = st.tabs(["Summary Metrics", "Data Preview", "Export"])
+            
+            with tab1:
+                st.markdown("### Summary Metrics")
+                metrics = analysis.calculate_metrics()
+                
+                if analysis_mode == "Univariate Analysis":
+                    for col, stats in metrics.items():
+                        st.markdown(f"**{col}**")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Mean", f"{stats['mean']:.3f}")
+                            st.metric("Std Dev", f"{stats['std']:.3f}")
+                        with col2:
+                            st.metric("Min", f"{stats['min']:.3f}")
+                            st.metric("Max", f"{stats['max']:.3f}")
+                        with col3:
+                            st.metric("Median", f"{stats['median']:.3f}")
+                            st.metric("Count", stats['count'])
+                        st.markdown("---")
+                        
+                elif analysis_mode == "Time Series Analysis":
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Lag", metrics['lag'])
+                        st.metric("Autocorrelation at Lag", f"{metrics['autocorr_at_lag']:.3f}")
+                    with col2:
+                        st.metric("Pearson R", f"{metrics['pearson_r']:.3f}")
+                        st.metric("R²", f"{metrics['r_squared']:.3f}")
+                        
+                elif analysis_mode == "Correlation Analysis":
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Pearson R", f"{metrics['pearson_r']:.3f}")
+                        st.metric("Spearman R", f"{metrics['spearman_r']:.3f}")
+                        st.metric("R²", f"{metrics['r_squared']:.3f}")
+                    with col2:
+                        st.metric("Applied Shift", metrics['shift_applied'])
+                        st.metric("Optimal Lag", metrics['optimal_lag'])
+                        st.metric("Max Cross-Corr", f"{metrics['max_cross_correlation']:.3f}")
+            
+            with tab2:
+                st.markdown("### Data Preview")
+                preview_df = analysis.prepare_data(date_range if 'date_range' in locals() else None)
+                relevant_cols = [time_col] + ([col for col in value_cols if col] if value_cols else [])
+                if relevant_cols:
+                    st.dataframe(preview_df[relevant_cols].head(100), use_container_width=True)
+            
+            with tab3:
+                st.markdown("### Export Options")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Export filtered data as CSV
+                    export_df = analysis.prepare_data(date_range if 'date_range' in locals() else None)
+                    csv = export_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download analysis data as CSV",
+                        data=csv,
+                        file_name=f"{analysis_mode.lower().replace(' ', '_')}_{st.session_state.filename}",
+                        mime="text/csv"
+                    )
+                
+                with col2:
+                    # Export plot as HTML
+                    html = fig.to_html(include_plotlyjs='cdn')
+                    st.download_button(
+                        label="Download plot as HTML",
+                        data=html,
+                        file_name=f"{analysis_mode.lower().replace(' ', '_')}_plot.html",
+                        mime="text/html"
+                    )
+                    
+    except Exception as e:
+        st.error(f"Error creating analysis: {str(e)}")
+        st.exception(e)
