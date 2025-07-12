@@ -6,6 +6,7 @@ from datetime import datetime
 import io
 
 from tsplot.plot_types.bin_scatter import bin_scatter
+from tsplot.transforms import apply_transform
 
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
 
@@ -157,6 +158,39 @@ else:
         
         st.markdown("---")
         
+        # Transform settings
+        st.markdown("### Data Transforms")
+        
+        transform_type = st.selectbox(
+            "Apply transform",
+            ["none", "lowpass", "highpass", "bandpass", "savgol", "moving_average", "exponential_smoothing", "detrend"],
+            help="Apply signal processing transforms to data"
+        )
+        
+        transform_params = {}
+        
+        if transform_type == "lowpass":
+            transform_params['cutoff'] = st.slider("Cutoff frequency", 0.01, 0.5, 0.1, 0.01)
+            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
+        elif transform_type == "highpass":
+            transform_params['cutoff'] = st.slider("Cutoff frequency", 0.01, 0.5, 0.1, 0.01)
+            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
+        elif transform_type == "bandpass":
+            transform_params['low'] = st.slider("Low cutoff", 0.01, 0.4, 0.05, 0.01)
+            transform_params['high'] = st.slider("High cutoff", 0.1, 0.5, 0.2, 0.01)
+            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
+        elif transform_type == "savgol":
+            transform_params['window_length'] = st.slider("Window length", 5, 51, 11, 2)
+            transform_params['polyorder'] = st.slider("Polynomial order", 1, 6, 3)
+        elif transform_type == "moving_average":
+            transform_params['window'] = st.slider("Window size", 3, 100, 10)
+        elif transform_type == "exponential_smoothing":
+            transform_params['alpha'] = st.slider("Smoothing factor", 0.01, 1.0, 0.3, 0.01)
+        elif transform_type == "detrend":
+            transform_params['method'] = st.selectbox("Detrend method", ["linear", "constant"])
+        
+        st.markdown("---")
+        
         # Data filtering
         st.markdown("### Data Filtering")
         
@@ -199,6 +233,15 @@ else:
         # Prepare data for plotting
         plot_df = filtered_df[[time_col] + value_cols].copy()
         plot_df = plot_df.sort_values(time_col)
+        
+        # Apply transforms to value columns
+        if transform_type != "none":
+            for col in value_cols:
+                try:
+                    plot_df[col] = apply_transform(plot_df[col], transform_type, **transform_params)
+                except Exception as e:
+                    st.warning(f"Transform failed for column {col}: {str(e)}")
+                    continue
         
         # Create figure
         fig = go.Figure()
