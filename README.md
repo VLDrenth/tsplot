@@ -2,6 +2,8 @@
 
 A web-based tool for analyzing time series data with three analysis modes and various visualization options.
 
+**Live Demo:** https://tsplot.streamlit.app/
+
 ## Features
 
 **Analysis Modes:**
@@ -36,8 +38,6 @@ A web-based tool for analyzing time series data with three analysis modes and va
 5. View results and export data or plots
 
 The app automatically detects datetime and numeric columns and provides appropriate options for each analysis mode.
-
-**Live Demo:** https://tsplot.streamlit.app/
 
 ## Requirements
 
