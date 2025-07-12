@@ -21,6 +21,9 @@ class TimeSeriesAnalysis(BaseAnalysis):
             'lag': 'Required: Number of periods to shift for comparison'
         }
     
+    def get_value_columns(self) -> List[str]:
+        return [self.value_col] if self.value_col else []
+    
     def validate_inputs(self, **kwargs) -> bool:
         return (self.value_col in self.data.columns and 
                 self.time_col in self.data.columns and
@@ -28,7 +31,8 @@ class TimeSeriesAnalysis(BaseAnalysis):
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None,
                    transform_type: str = "none", transform_params: Dict = None,
-                   plot_params: Dict = None, show_markers: bool = False) -> go.Figure:
+                   plot_params: Dict = None, show_markers: bool = False,
+                   resample_params: Dict = None) -> go.Figure:
         """Create time series lag analysis plot."""
         if transform_params is None:
             transform_params = {}
@@ -36,7 +40,7 @@ class TimeSeriesAnalysis(BaseAnalysis):
             plot_params = {}
             
         # Prepare data
-        plot_df = self.prepare_data(date_range)
+        plot_df = self.prepare_data(date_range, resample_params)
         series = plot_df[self.value_col].copy()
         
         # Apply transforms

@@ -18,12 +18,16 @@ class UnivariateAnalysis(BaseAnalysis):
             'value_columns': 'Required: One or more numeric columns to analyze'
         }
     
+    def get_value_columns(self) -> List[str]:
+        return self.value_cols
+    
     def validate_inputs(self, **kwargs) -> bool:
         return bool(self.value_cols) and self.time_col in self.data.columns
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None, 
                    transform_type: str = "none", transform_params: Dict = None,
-                   plot_params: Dict = None, show_markers: bool = False) -> go.Figure:
+                   plot_params: Dict = None, show_markers: bool = False,
+                   resample_params: Dict = None) -> go.Figure:
         """Create univariate time series plot."""
         if transform_params is None:
             transform_params = {}
@@ -31,7 +35,7 @@ class UnivariateAnalysis(BaseAnalysis):
             plot_params = {}
             
         # Prepare data
-        plot_df = self.prepare_data(date_range)
+        plot_df = self.prepare_data(date_range, resample_params)
         plot_df = plot_df[[self.time_col] + self.value_cols].copy()
         
         # Apply transforms

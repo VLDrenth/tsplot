@@ -23,6 +23,9 @@ class CorrelationAnalysis(BaseAnalysis):
             'shift': 'Optional: Number of periods to shift second series'
         }
     
+    def get_value_columns(self) -> List[str]:
+        return [col for col in [self.x_col, self.y_col] if col]
+    
     def validate_inputs(self, **kwargs) -> bool:
         return (self.x_col in self.data.columns and 
                 self.y_col in self.data.columns and
@@ -31,7 +34,8 @@ class CorrelationAnalysis(BaseAnalysis):
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None,
                    transform_type: str = "none", transform_params: Dict = None,
-                   plot_params: Dict = None, show_markers: bool = False) -> go.Figure:
+                   plot_params: Dict = None, show_markers: bool = False,
+                   resample_params: Dict = None) -> go.Figure:
         """Create correlation analysis plot."""
         if transform_params is None:
             transform_params = {}
@@ -39,7 +43,7 @@ class CorrelationAnalysis(BaseAnalysis):
             plot_params = {}
             
         # Prepare data
-        plot_df = self.prepare_data(date_range)
+        plot_df = self.prepare_data(date_range, resample_params)
         x_series = plot_df[self.x_col].copy()
         y_series = plot_df[self.y_col].copy()
         

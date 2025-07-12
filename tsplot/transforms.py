@@ -73,6 +73,61 @@ def detrend(data: pd.Series, method: str = 'linear') -> pd.Series:
     return result
 
 
+def resample_timeseries(data: pd.DataFrame, time_col: str, value_cols: list, 
+                       frequency: str = 'D', strategy: str = 'mean') -> pd.DataFrame:
+    """
+    Resample time series data to specified frequency.
+    
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Input dataframe with time series data
+    time_col : str
+        Name of the time column
+    value_cols : list
+        List of value columns to resample
+    frequency : str
+        Resampling frequency ('D', 'W', 'M', 'Q', 'Y')
+    strategy : str
+        Aggregation strategy ('mean', 'last', 'first', 'sum', 'max', 'min', 'count')
+    
+    Returns
+    -------
+    pd.DataFrame
+        Resampled dataframe
+    """
+    # Make a copy and ensure time column is datetime
+    df = data.copy()
+    if df[time_col].dtype != 'datetime64[ns]':
+        df[time_col] = pd.to_datetime(df[time_col])
+    
+    # Set time column as index for resampling
+    df_indexed = df.set_index(time_col)
+    
+    # Define aggregation strategy
+    if strategy == 'mean':
+        resampled = df_indexed[value_cols].resample(frequency).mean()
+    elif strategy == 'last':
+        resampled = df_indexed[value_cols].resample(frequency).last()
+    elif strategy == 'first':
+        resampled = df_indexed[value_cols].resample(frequency).first()
+    elif strategy == 'sum':
+        resampled = df_indexed[value_cols].resample(frequency).sum()
+    elif strategy == 'max':
+        resampled = df_indexed[value_cols].resample(frequency).max()
+    elif strategy == 'min':
+        resampled = df_indexed[value_cols].resample(frequency).min()
+    elif strategy == 'count':
+        resampled = df_indexed[value_cols].resample(frequency).count()
+    else:
+        raise ValueError(f"Unknown strategy: {strategy}")
+    
+    # Reset index to get time column back
+    resampled = resampled.reset_index()
+    
+    return resampled
+
+
 def apply_transform(data: pd.Series, transform_type: str, **kwargs) -> pd.Series:
     """Apply specified transform to data."""
     if transform_type == "none":

@@ -6,7 +6,7 @@ from datetime import datetime
 import io
 
 from tsplot.plot_types.bin_scatter import bin_scatter
-from tsplot.transforms import apply_transform
+from tsplot.transforms import apply_transform, resample_timeseries
 from tsplot.data_processor import DataProcessor
 
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
@@ -246,6 +246,31 @@ else:
         
         st.markdown("---")
         
+        # Resampling settings
+        st.markdown("### Data Resampling")
+        
+        enable_resampling = st.checkbox("Enable resampling", value=False, 
+                                       help="Resample time series to different frequencies")
+        
+        resample_params = {}
+        if enable_resampling:
+            col1, col2 = st.columns(2)
+            with col1:
+                resample_params['frequency'] = st.selectbox(
+                    "Frequency",
+                    ["D", "W", "M", "Q", "Y"],
+                    index=1,  # Default to Weekly
+                    help="D=Daily, W=Weekly, M=Monthly, Q=Quarterly, Y=Yearly"
+                )
+            with col2:
+                resample_params['strategy'] = st.selectbox(
+                    "Strategy",
+                    ["mean", "last", "first", "sum", "max", "min", "count"],
+                    help="How to aggregate data within each period"
+                )
+        
+        st.markdown("---")
+        
         # Data filtering
         st.markdown("### Data Filtering")
         
@@ -319,7 +344,8 @@ else:
                 transform_type=transform_type,
                 transform_params=transform_params,
                 plot_params=plot_params,
-                show_markers=show_markers
+                show_markers=show_markers,
+                resample_params=resample_params if enable_resampling else None
             )
             
             # Update layout
@@ -372,7 +398,10 @@ else:
             
             with tab2:
                 st.markdown("### Data Preview")
-                preview_df = analysis.prepare_data(date_range if 'date_range' in locals() else None)
+                preview_df = analysis.prepare_data(
+                    date_range if 'date_range' in locals() else None,
+                    resample_params if enable_resampling else None
+                )
                 relevant_cols = [time_col] + ([col for col in value_cols if col] if value_cols else [])
                 if relevant_cols:
                     st.dataframe(preview_df[relevant_cols].head(100), use_container_width=True)
@@ -383,7 +412,10 @@ else:
                 
                 with col1:
                     # Export filtered data as CSV
-                    export_df = analysis.prepare_data(date_range if 'date_range' in locals() else None)
+                    export_df = analysis.prepare_data(
+                        date_range if 'date_range' in locals() else None,
+                        resample_params if enable_resampling else None
+                    )
                     csv = export_df.to_csv(index=False)
                     st.download_button(
                         label="Download analysis data as CSV",
