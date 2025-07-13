@@ -8,8 +8,12 @@ import io
 from tsplot.plot_types.bin_scatter import bin_scatter
 from tsplot.transforms import apply_transform, resample_timeseries, TransformPipeline, get_transform_info
 from tsplot.data_processor import DataProcessor
+from tsplot.theme import register_tsplot_clean_theme
 
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
+
+# Initialize theme
+register_tsplot_clean_theme()
 
 def render_transform_pipeline():
     """Render the transform pipeline UI."""
@@ -260,6 +264,20 @@ else:
     # Sidebar for settings
     with st.sidebar:
         st.title("Dashboard Settings")
+        
+        # Theme selector
+        st.markdown("### Theme")
+        theme_choice = st.selectbox(
+            "Plot theme",
+            ["tsplot_clean"],
+            help="Choose the visual theme for plots"
+        )
+        
+        # Apply theme if changed
+        if theme_choice == "tsplot_clean":
+            register_tsplot_clean_theme()
+        
+        st.markdown("---")
         
         # Analysis mode selector
         st.markdown("### Analysis Mode")
