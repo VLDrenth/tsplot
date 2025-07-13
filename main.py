@@ -6,10 +6,205 @@ from datetime import datetime
 import io
 
 from tsplot.plot_types.bin_scatter import bin_scatter
-from tsplot.transforms import apply_transform, resample_timeseries
+from tsplot.transforms import apply_transform, resample_timeseries, TransformPipeline, get_transform_info
 from tsplot.data_processor import DataProcessor
 
 st.set_page_config(page_title="Time Series Dashboard", layout="wide")
+
+def render_transform_pipeline():
+    """Render the transform pipeline UI."""
+    st.markdown("### Transform Pipeline")
+    
+    pipeline = st.session_state.transform_pipeline
+    transform_info = get_transform_info()
+    
+    # Transform pipeline header with controls
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.markdown(f"**Active Transforms: {len(pipeline.transforms)}/3**")
+    
+    with col2:
+        if st.button("Clear All", disabled=pipeline.is_empty()):
+            pipeline.clear()
+            st.session_state.selected_transform_id = None
+            st.rerun()
+    
+    with col3:
+        show_add = not pipeline.is_full()
+        if st.button("+ Add Transform", disabled=not show_add, type="primary" if show_add else "secondary"):
+            st.session_state.show_add_transform = True
+            st.rerun()
+    
+    # Add transform dialog
+    if st.session_state.get('show_add_transform', False):
+        with st.expander("Add New Transform", expanded=True):
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                new_transform_type = st.selectbox(
+                    "Transform Type",
+                    options=list(transform_info.keys()),
+                    format_func=lambda x: transform_info[x]["name"],
+                    key="new_transform_type"
+                )
+            
+            with col2:
+                if st.button("Add", key="add_transform_btn"):
+                    try:
+                        default_params = {}
+                        for param_name, param_info in transform_info[new_transform_type]["parameters"].items():
+                            default_params[param_name] = param_info["default"]
+                        
+                        pipeline.add_transform(new_transform_type, default_params)
+                        st.session_state.show_add_transform = False
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+                
+                if st.button("Cancel", key="cancel_add_transform"):
+                    st.session_state.show_add_transform = False
+                    st.rerun()
+    
+    # Display pipeline transforms
+    if not pipeline.is_empty():
+        st.markdown("#### Pipeline Steps")
+        
+        for i, transform in enumerate(pipeline.transforms):
+            render_transform_card(transform, i, transform_info)
+    else:
+        st.info("No transforms in pipeline. Click '+ Add Transform' to get started.")
+
+def render_transform_card(transform, position, transform_info):
+    """Render a single transform card."""
+    transform_config = transform_info.get(transform.transform_type, {})
+    
+    # Card container
+    with st.container():
+        # Header with position, name, and controls
+        col1, col2, col3, col4, col5 = st.columns([0.5, 2, 1, 1, 1])
+        
+        with col1:
+            st.markdown(f"**{position + 1}.**")
+        
+        with col2:
+            enabled_icon = "✅" if transform.enabled else "⏸️"
+            st.markdown(f"{enabled_icon} **{transform_config.get('name', transform.transform_type)}**")
+        
+        with col3:
+            # Move up button
+            if position > 0:
+                if st.button("↑", key=f"up_{transform.id}", help="Move up"):
+                    st.session_state.transform_pipeline.move_transform(transform.id, position - 1)
+                    st.rerun()
+        
+        with col4:
+            # Move down button
+            if position < len(st.session_state.transform_pipeline.transforms) - 1:
+                if st.button("↓", key=f"down_{transform.id}", help="Move down"):
+                    st.session_state.transform_pipeline.move_transform(transform.id, position + 1)
+                    st.rerun()
+        
+        with col5:
+            # Remove button
+            if st.button("🗑️", key=f"remove_{transform.id}", help="Remove transform"):
+                st.session_state.transform_pipeline.remove_transform(transform.id)
+                if st.session_state.selected_transform_id == transform.id:
+                    st.session_state.selected_transform_id = None
+                st.rerun()
+        
+        # Transform description
+        if transform_config.get('description'):
+            st.caption(transform_config['description'])
+        
+        # Toggle enabled/disabled
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if st.button(
+                "Disable" if transform.enabled else "Enable",
+                key=f"toggle_{transform.id}",
+                type="secondary"
+            ):
+                st.session_state.transform_pipeline.toggle_transform(transform.id)
+                st.rerun()
+        
+        with col2:
+            # Configure button
+            is_selected = st.session_state.selected_transform_id == transform.id
+            if st.button(
+                "Hide Config" if is_selected else "Configure",
+                key=f"config_{transform.id}",
+                type="primary" if not is_selected else "secondary"
+            ):
+                if is_selected:
+                    st.session_state.selected_transform_id = None
+                else:
+                    st.session_state.selected_transform_id = transform.id
+                st.rerun()
+        
+        # Parameter configuration (expanded if selected)
+        if st.session_state.selected_transform_id == transform.id:
+            render_transform_parameters(transform, transform_config)
+        
+        st.markdown("---")
+
+def render_transform_parameters(transform, transform_config):
+    """Render parameter controls for a transform."""
+    st.markdown("##### Parameters")
+    
+    parameters = transform_config.get("parameters", {})
+    updated_params = {}
+    
+    for param_name, param_info in parameters.items():
+        current_value = transform.parameters.get(param_name, param_info["default"])
+        
+        if param_info["type"] == "float":
+            updated_params[param_name] = st.slider(
+                param_name.replace('_', ' ').title(),
+                min_value=param_info["min"],
+                max_value=param_info["max"],
+                value=current_value,
+                step=param_info.get("step", 0.01),
+                key=f"param_{transform.id}_{param_name}"
+            )
+        elif param_info["type"] == "int":
+            step = param_info.get("step", 1)
+            if param_name == "window_length":
+                # Ensure odd numbers for savgol filter
+                min_val = param_info["min"]
+                max_val = param_info["max"]
+                value = current_value
+                if value % 2 == 0:
+                    value += 1
+                
+                updated_params[param_name] = st.slider(
+                    param_name.replace('_', ' ').title(),
+                    min_value=min_val,
+                    max_value=max_val,
+                    value=value,
+                    step=2,  # Force odd numbers
+                    key=f"param_{transform.id}_{param_name}"
+                )
+            else:
+                updated_params[param_name] = st.slider(
+                    param_name.replace('_', ' ').title(),
+                    min_value=param_info["min"],
+                    max_value=param_info["max"],
+                    value=current_value,
+                    step=step,
+                    key=f"param_{transform.id}_{param_name}"
+                )
+        elif param_info["type"] == "select":
+            updated_params[param_name] = st.selectbox(
+                param_name.replace('_', ' ').title(),
+                options=param_info["options"],
+                index=param_info["options"].index(current_value) if current_value in param_info["options"] else 0,
+                key=f"param_{transform.id}_{param_name}"
+            )
+    
+    # Update parameters if they changed
+    if updated_params != transform.parameters:
+        st.session_state.transform_pipeline.update_transform_parameters(transform.id, updated_params)
 
 if 'data' not in st.session_state:
     st.session_state.data = None
@@ -17,6 +212,16 @@ if 'file_uploaded' not in st.session_state:
     st.session_state.file_uploaded = False
 if 'data_processor' not in st.session_state:
     st.session_state.data_processor = None
+if 'transform_pipeline' not in st.session_state:
+    st.session_state.transform_pipeline = TransformPipeline()
+if 'selected_transform_id' not in st.session_state:
+    st.session_state.selected_transform_id = None
+if 'enable_resampling' not in st.session_state:
+    st.session_state.enable_resampling = False
+if 'resample_frequency' not in st.session_state:
+    st.session_state.resample_frequency = 'W'  # Default to Weekly
+if 'resample_strategy' not in st.session_state:
+    st.session_state.resample_strategy = 'mean'
 
 # File upload
 if not st.session_state.file_uploaded:
@@ -213,61 +418,64 @@ else:
         
         st.markdown("---")
         
-        # Transform settings
-        st.markdown("### Data Transforms")
-        
-        transform_type = st.selectbox(
-            "Apply transform",
-            ["none", "lowpass", "highpass", "bandpass", "savgol", "moving_average", "exponential_smoothing", "detrend"],
-            help="Apply signal processing transforms to data"
-        )
-        
-        transform_params = {}
-        
-        if transform_type == "lowpass":
-            transform_params['cutoff'] = st.slider("Cutoff frequency", 0.01, 0.5, 0.1, 0.01)
-            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
-        elif transform_type == "highpass":
-            transform_params['cutoff'] = st.slider("Cutoff frequency", 0.01, 0.5, 0.1, 0.01)
-            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
-        elif transform_type == "bandpass":
-            transform_params['low'] = st.slider("Low cutoff", 0.01, 0.4, 0.05, 0.01)
-            transform_params['high'] = st.slider("High cutoff", 0.1, 0.5, 0.2, 0.01)
-            transform_params['order'] = st.slider("Filter order", 1, 10, 5)
-        elif transform_type == "savgol":
-            transform_params['window_length'] = st.slider("Window length", 5, 51, 11, 2)
-            transform_params['polyorder'] = st.slider("Polynomial order", 1, 6, 3)
-        elif transform_type == "moving_average":
-            transform_params['window'] = st.slider("Window size", 3, 100, 10)
-        elif transform_type == "exponential_smoothing":
-            transform_params['alpha'] = st.slider("Smoothing factor", 0.01, 1.0, 0.3, 0.01)
-        elif transform_type == "detrend":
-            transform_params['method'] = st.selectbox("Detrend method", ["linear", "constant"])
+        # Transform pipeline
+        render_transform_pipeline()
         
         st.markdown("---")
         
         # Resampling settings
         st.markdown("### Data Resampling")
         
-        enable_resampling = st.checkbox("Enable resampling", value=False, 
-                                       help="Resample time series to different frequencies")
+        # Use session state to persist resampling settings
+        enable_resampling = st.checkbox(
+            "Enable resampling", 
+            value=st.session_state.enable_resampling,
+            key="resample_checkbox",
+            help="Resample time series to different frequencies"
+        )
+        
+        # Update session state when checkbox changes
+        if enable_resampling != st.session_state.enable_resampling:
+            st.session_state.enable_resampling = enable_resampling
         
         resample_params = {}
         if enable_resampling:
             col1, col2 = st.columns(2)
             with col1:
-                resample_params['frequency'] = st.selectbox(
+                frequency_options = ["D", "W", "M", "Q", "Y"]
+                current_freq_index = frequency_options.index(st.session_state.resample_frequency) if st.session_state.resample_frequency in frequency_options else 1
+                
+                new_frequency = st.selectbox(
                     "Frequency",
-                    ["D", "W", "M", "Q", "Y"],
-                    index=1,  # Default to Weekly
+                    frequency_options,
+                    index=current_freq_index,
+                    key="resample_frequency_select",
                     help="D=Daily, W=Weekly, M=Monthly, Q=Quarterly, Y=Yearly"
                 )
+                
+                # Update session state when frequency changes
+                if new_frequency != st.session_state.resample_frequency:
+                    st.session_state.resample_frequency = new_frequency
+                
+                resample_params['frequency'] = st.session_state.resample_frequency
+                
             with col2:
-                resample_params['strategy'] = st.selectbox(
+                strategy_options = ["mean", "last", "first", "sum", "max", "min", "count"]
+                current_strategy_index = strategy_options.index(st.session_state.resample_strategy) if st.session_state.resample_strategy in strategy_options else 0
+                
+                new_strategy = st.selectbox(
                     "Strategy",
-                    ["mean", "last", "first", "sum", "max", "min", "count"],
+                    strategy_options,
+                    index=current_strategy_index,
+                    key="resample_strategy_select",
                     help="How to aggregate data within each period"
                 )
+                
+                # Update session state when strategy changes
+                if new_strategy != st.session_state.resample_strategy:
+                    st.session_state.resample_strategy = new_strategy
+                
+                resample_params['strategy'] = st.session_state.resample_strategy
         
         st.markdown("---")
         
@@ -341,11 +549,10 @@ else:
             fig = analysis.create_plot(
                 plot_type=plot_type,
                 date_range=date_range if 'date_range' in locals() else None,
-                transform_type=transform_type,
-                transform_params=transform_params,
+                transform_pipeline=st.session_state.transform_pipeline,
                 plot_params=plot_params,
                 show_markers=show_markers,
-                resample_params=resample_params if enable_resampling else None
+                resample_params=resample_params if st.session_state.enable_resampling else None
             )
             
             # Update layout
@@ -400,7 +607,7 @@ else:
                 st.markdown("### Data Preview")
                 preview_df = analysis.prepare_data(
                     date_range if 'date_range' in locals() else None,
-                    resample_params if enable_resampling else None
+                    resample_params if st.session_state.enable_resampling else None
                 )
                 relevant_cols = [time_col] + ([col for col in value_cols if col] if value_cols else [])
                 if relevant_cols:
@@ -414,7 +621,7 @@ else:
                     # Export filtered data as CSV
                     export_df = analysis.prepare_data(
                         date_range if 'date_range' in locals() else None,
-                        resample_params if enable_resampling else None
+                        resample_params if st.session_state.enable_resampling else None
                     )
                     csv = export_df.to_csv(index=False)
                     st.download_button(

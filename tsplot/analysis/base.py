@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 import plotly.graph_objects as go
 from typing import Dict, List, Any, Optional, Tuple
-from ..transforms import apply_transform, resample_timeseries
+from ..transforms import apply_transform, resample_timeseries, TransformPipeline
 
 
 class BaseAnalysis(ABC):
@@ -14,11 +14,15 @@ class BaseAnalysis(ABC):
         self.transforms = {}
         self.plot_params = {}
         
-    def apply_transforms(self, series: pd.Series, transform_type: str = "none", **transform_params) -> pd.Series:
-        """Apply transforms to a series."""
-        if transform_type == "none":
+    def apply_transforms(self, series: pd.Series, transform_pipeline: Optional[TransformPipeline] = None, 
+                        transform_type: str = "none", **transform_params) -> pd.Series:
+        """Apply transforms to a series. Supports both pipeline and legacy single transform."""
+        if transform_pipeline is not None:
+            return transform_pipeline.apply(series)
+        elif transform_type != "none":
+            return apply_transform(series, transform_type, **transform_params)
+        else:
             return series
-        return apply_transform(series, transform_type, **transform_params)
     
     def prepare_data(self, date_range: Optional[Tuple] = None, resample_params: Optional[Dict] = None) -> pd.DataFrame:
         """Prepare and filter data for analysis."""

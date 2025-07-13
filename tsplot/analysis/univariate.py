@@ -25,7 +25,7 @@ class UnivariateAnalysis(BaseAnalysis):
         return bool(self.value_cols) and self.time_col in self.data.columns
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None, 
-                   transform_type: str = "none", transform_params: Dict = None,
+                   transform_pipeline = None, transform_type: str = "none", transform_params: Dict = None,
                    plot_params: Dict = None, show_markers: bool = False,
                    resample_params: Dict = None) -> go.Figure:
         """Create univariate time series plot."""
@@ -39,10 +39,16 @@ class UnivariateAnalysis(BaseAnalysis):
         plot_df = plot_df[[self.time_col] + self.value_cols].copy()
         
         # Apply transforms
-        if transform_type != "none":
+        if transform_pipeline is not None and not transform_pipeline.is_empty():
             for col in self.value_cols:
                 try:
-                    plot_df[col] = self.apply_transforms(plot_df[col], transform_type, **transform_params)
+                    plot_df[col] = self.apply_transforms(plot_df[col], transform_pipeline=transform_pipeline)
+                except Exception:
+                    continue
+        elif transform_type != "none":
+            for col in self.value_cols:
+                try:
+                    plot_df[col] = self.apply_transforms(plot_df[col], transform_type=transform_type, **transform_params)
                 except Exception:
                     continue
         

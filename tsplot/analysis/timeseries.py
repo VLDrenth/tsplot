@@ -30,7 +30,7 @@ class TimeSeriesAnalysis(BaseAnalysis):
                 isinstance(self.lag, int))
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None,
-                   transform_type: str = "none", transform_params: Dict = None,
+                   transform_pipeline = None, transform_type: str = "none", transform_params: Dict = None,
                    plot_params: Dict = None, show_markers: bool = False,
                    resample_params: Dict = None) -> go.Figure:
         """Create time series lag analysis plot."""
@@ -44,8 +44,10 @@ class TimeSeriesAnalysis(BaseAnalysis):
         series = plot_df[self.value_col].copy()
         
         # Apply transforms
-        if transform_type != "none":
-            series = self.apply_transforms(series, transform_type, **transform_params)
+        if transform_pipeline is not None and not transform_pipeline.is_empty():
+            series = self.apply_transforms(series, transform_pipeline=transform_pipeline)
+        elif transform_type != "none":
+            series = self.apply_transforms(series, transform_type=transform_type, **transform_params)
         
         # Create shifted version
         shifted_series = shift_series(series, self.lag)

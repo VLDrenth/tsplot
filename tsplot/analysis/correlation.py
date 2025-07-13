@@ -33,7 +33,7 @@ class CorrelationAnalysis(BaseAnalysis):
                 isinstance(self.shift, int))
     
     def create_plot(self, plot_type: str, date_range: Optional[tuple] = None,
-                   transform_type: str = "none", transform_params: Dict = None,
+                   transform_pipeline = None, transform_type: str = "none", transform_params: Dict = None,
                    plot_params: Dict = None, show_markers: bool = False,
                    resample_params: Dict = None) -> go.Figure:
         """Create correlation analysis plot."""
@@ -48,9 +48,12 @@ class CorrelationAnalysis(BaseAnalysis):
         y_series = plot_df[self.y_col].copy()
         
         # Apply transforms
-        if transform_type != "none":
-            x_series = self.apply_transforms(x_series, transform_type, **transform_params)
-            y_series = self.apply_transforms(y_series, transform_type, **transform_params)
+        if transform_pipeline is not None and not transform_pipeline.is_empty():
+            x_series = self.apply_transforms(x_series, transform_pipeline=transform_pipeline)
+            y_series = self.apply_transforms(y_series, transform_pipeline=transform_pipeline)
+        elif transform_type != "none":
+            x_series = self.apply_transforms(x_series, transform_type=transform_type, **transform_params)
+            y_series = self.apply_transforms(y_series, transform_type=transform_type, **transform_params)
         
         # Apply shift to y_series
         if self.shift != 0:

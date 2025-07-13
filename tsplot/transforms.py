@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 from scipy import signal
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List, Dict, Any
+from dataclasses import dataclass, field
+import uuid
 
 
 def lowpass_filter(data: pd.Series, cutoff: float, fs: float = 1.0, order: int = 5) -> pd.Series:
@@ -126,6 +128,182 @@ def resample_timeseries(data: pd.DataFrame, time_col: str, value_cols: list,
     resampled = resampled.reset_index()
     
     return resampled
+
+
+@dataclass
+class Transform:
+    """Represents a single transform with its parameters."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    transform_type: str = "none"
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    enabled: bool = True
+    
+    def apply(self, data: pd.Series) -> pd.Series:
+        """Apply this transform to the data."""
+        if not self.enabled or self.transform_type == "none":
+            return data
+        return apply_transform(data, self.transform_type, **self.parameters)
+
+
+class TransformPipeline:
+    """Manages a pipeline of up to 3 transforms applied in sequence."""
+    
+    def __init__(self, max_transforms: int = 3):
+        self.max_transforms = max_transforms
+        self.transforms: List[Transform] = []
+    
+    def add_transform(self, transform_type: str, parameters: Dict[str, Any] = None) -> Transform:
+        """Add a new transform to the pipeline."""
+        if len(self.transforms) >= self.max_transforms:
+            raise ValueError(f"Maximum {self.max_transforms} transforms allowed")
+        
+        transform = Transform(
+            transform_type=transform_type,
+            parameters=parameters or {}
+        )
+        self.transforms.append(transform)
+        return transform
+    
+    def remove_transform(self, transform_id: str) -> bool:
+        """Remove a transform by ID."""
+        for i, transform in enumerate(self.transforms):
+            if transform.id == transform_id:
+                del self.transforms[i]
+                return True
+        return False
+    
+    def move_transform(self, transform_id: str, new_position: int) -> bool:
+        """Move a transform to a new position."""
+        if new_position < 0 or new_position >= len(self.transforms):
+            return False
+        
+        # Find the transform
+        transform_index = None
+        for i, transform in enumerate(self.transforms):
+            if transform.id == transform_id:
+                transform_index = i
+                break
+        
+        if transform_index is None:
+            return False
+        
+        # Move the transform
+        transform = self.transforms.pop(transform_index)
+        self.transforms.insert(new_position, transform)
+        return True
+    
+    def update_transform_parameters(self, transform_id: str, parameters: Dict[str, Any]) -> bool:
+        """Update parameters for a specific transform."""
+        for transform in self.transforms:
+            if transform.id == transform_id:
+                transform.parameters.update(parameters)
+                return True
+        return False
+    
+    def toggle_transform(self, transform_id: str) -> bool:
+        """Enable/disable a specific transform."""
+        for transform in self.transforms:
+            if transform.id == transform_id:
+                transform.enabled = not transform.enabled
+                return True
+        return False
+    
+    def apply(self, data: pd.Series) -> pd.Series:
+        """Apply all enabled transforms in sequence."""
+        result = data.copy()
+        for transform in self.transforms:
+            if transform.enabled:
+                try:
+                    result = transform.apply(result)
+                except Exception as e:
+                    print(f"Warning: Transform {transform.transform_type} failed: {e}")
+                    continue
+        return result
+    
+    def get_summary(self) -> List[Dict[str, Any]]:
+        """Get a summary of all transforms in the pipeline."""
+        return [
+            {
+                "id": t.id,
+                "type": t.transform_type,
+                "parameters": t.parameters,
+                "enabled": t.enabled,
+                "position": i
+            }
+            for i, t in enumerate(self.transforms)
+        ]
+    
+    def clear(self):
+        """Remove all transforms from the pipeline."""
+        self.transforms.clear()
+    
+    def is_full(self) -> bool:
+        """Check if the pipeline is at maximum capacity."""
+        return len(self.transforms) >= self.max_transforms
+    
+    def is_empty(self) -> bool:
+        """Check if the pipeline is empty."""
+        return len(self.transforms) == 0
+
+
+def get_transform_info() -> Dict[str, Dict[str, Any]]:
+    """Get information about available transforms and their parameters."""
+    return {
+        "lowpass": {
+            "name": "Low-pass Filter",
+            "description": "Removes high-frequency noise",
+            "parameters": {
+                "cutoff": {"type": "float", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01},
+                "order": {"type": "int", "min": 1, "max": 10, "default": 5}
+            }
+        },
+        "highpass": {
+            "name": "High-pass Filter", 
+            "description": "Removes low-frequency trends",
+            "parameters": {
+                "cutoff": {"type": "float", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01},
+                "order": {"type": "int", "min": 1, "max": 10, "default": 5}
+            }
+        },
+        "bandpass": {
+            "name": "Band-pass Filter",
+            "description": "Keeps frequencies in a specific range",
+            "parameters": {
+                "low": {"type": "float", "min": 0.01, "max": 0.4, "default": 0.05, "step": 0.01},
+                "high": {"type": "float", "min": 0.1, "max": 0.5, "default": 0.2, "step": 0.01},
+                "order": {"type": "int", "min": 1, "max": 10, "default": 5}
+            }
+        },
+        "savgol": {
+            "name": "Savitzky-Golay Filter",
+            "description": "Smooths data while preserving features",
+            "parameters": {
+                "window_length": {"type": "int", "min": 5, "max": 51, "default": 11, "step": 2},
+                "polyorder": {"type": "int", "min": 1, "max": 6, "default": 3}
+            }
+        },
+        "moving_average": {
+            "name": "Moving Average",
+            "description": "Simple smoothing filter",
+            "parameters": {
+                "window": {"type": "int", "min": 3, "max": 100, "default": 10}
+            }
+        },
+        "exponential_smoothing": {
+            "name": "Exponential Smoothing",
+            "description": "Weighted smoothing with exponential decay",
+            "parameters": {
+                "alpha": {"type": "float", "min": 0.01, "max": 1.0, "default": 0.3, "step": 0.01}
+            }
+        },
+        "detrend": {
+            "name": "Detrend",
+            "description": "Removes linear or constant trends",
+            "parameters": {
+                "method": {"type": "select", "options": ["linear", "constant"], "default": "linear"}
+            }
+        }
+    }
 
 
 def apply_transform(data: pd.Series, transform_type: str, **kwargs) -> pd.Series:
