@@ -139,10 +139,19 @@ class TimeSeriesAnalysis(BaseAnalysis):
         
         return fig
     
-    def calculate_metrics(self) -> Dict[str, Any]:
+    def calculate_metrics(self, transform_pipeline=None, date_range=None, resample_params=None) -> Dict[str, Any]:
         """Calculate time series analysis metrics."""
-        df = self.prepare_data()
-        series = df[self.value_col].dropna()
+        df = self.prepare_data(date_range, resample_params)
+        series = df[self.value_col].copy()
+        
+        # Apply transforms to get the same data as in the plot
+        if transform_pipeline is not None and not transform_pipeline.is_empty():
+            try:
+                series = self.apply_transforms(series, transform_pipeline=transform_pipeline)
+            except Exception:
+                pass
+        
+        series = series.dropna()
         shifted_series = shift_series(series, self.lag)
         
         # Calculate correlation between original and shifted

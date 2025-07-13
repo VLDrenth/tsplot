@@ -566,7 +566,11 @@ else:
             
             with tab1:
                 st.markdown("### Summary Metrics")
-                metrics = analysis.calculate_metrics()
+                metrics = analysis.calculate_metrics(
+                    transform_pipeline=st.session_state.transform_pipeline,
+                    date_range=date_range if 'date_range' in locals() else None,
+                    resample_params=resample_params if st.session_state.enable_resampling else None
+                )
                 
                 if analysis_mode == "Univariate Analysis":
                     for col, stats in metrics.items():

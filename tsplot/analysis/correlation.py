@@ -155,11 +155,19 @@ class CorrelationAnalysis(BaseAnalysis):
         
         return fig
     
-    def calculate_metrics(self) -> Dict[str, Any]:
+    def calculate_metrics(self, transform_pipeline=None, date_range=None, resample_params=None) -> Dict[str, Any]:
         """Calculate correlation analysis metrics."""
-        df = self.prepare_data()
+        df = self.prepare_data(date_range, resample_params)
         x_series = df[self.x_col].copy()
         y_series = df[self.y_col].copy()
+        
+        # Apply transforms to get the same data as in the plot
+        if transform_pipeline is not None and not transform_pipeline.is_empty():
+            try:
+                x_series = self.apply_transforms(x_series, transform_pipeline=transform_pipeline)
+                y_series = self.apply_transforms(y_series, transform_pipeline=transform_pipeline)
+            except Exception:
+                pass
         
         # Apply shift to y_series
         if self.shift != 0:
@@ -169,10 +177,16 @@ class CorrelationAnalysis(BaseAnalysis):
         x_aligned, y_aligned = align_series(x_series, y_series, method='inner')
         correlation_metrics = calculate_correlation_metrics(x_aligned, y_aligned)
         
-        # Calculate cross-correlation to find optimal lag
+        # Calculate cross-correlation to find optimal lag (using original y_series for this)
         try:
             max_lags = min(20, len(x_series) // 4)
-            lags, cross_corr = calculate_cross_correlation(x_series, df[self.y_col], max_lags)
+            original_y_series = df[self.y_col].copy()
+            if transform_pipeline is not None and not transform_pipeline.is_empty():
+                try:
+                    original_y_series = self.apply_transforms(original_y_series, transform_pipeline=transform_pipeline)
+                except Exception:
+                    pass
+            lags, cross_corr = calculate_cross_correlation(x_series, original_y_series, max_lags)
             optimal_lag_idx = np.argmax(np.abs(cross_corr))
             optimal_lag = lags[optimal_lag_idx]
             max_cross_corr = cross_corr[optimal_lag_idx]
@@ -186,5 +200,5 @@ class CorrelationAnalysis(BaseAnalysis):
             'max_cross_correlation': max_cross_corr,
             **correlation_metrics,
             'x_series_length': len(x_series.dropna()),
-            'y_series_length': len(df[self.y_col].dropna())
+            'y_series_length': len(y_series.dropna())
         }

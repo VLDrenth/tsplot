@@ -115,13 +115,22 @@ class UnivariateAnalysis(BaseAnalysis):
         
         return fig
     
-    def calculate_metrics(self) -> Dict[str, Any]:
+    def calculate_metrics(self, transform_pipeline=None, date_range=None, resample_params=None) -> Dict[str, Any]:
         """Calculate univariate statistics."""
         metrics = {}
-        df = self.prepare_data()
+        df = self.prepare_data(date_range, resample_params)
         
         for col in self.value_cols:
-            series = df[col].dropna()
+            series = df[col].copy()
+            
+            # Apply transforms to get the same data as in the plot
+            if transform_pipeline is not None and not transform_pipeline.is_empty():
+                try:
+                    series = self.apply_transforms(series, transform_pipeline=transform_pipeline)
+                except Exception:
+                    pass
+            
+            series = series.dropna()
             if len(series) > 0:
                 metrics[col] = {
                     'count': len(series),

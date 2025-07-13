@@ -75,6 +75,56 @@ def detrend(data: pd.Series, method: str = 'linear') -> pd.Series:
     return result
 
 
+def mom_percent(data: pd.Series) -> pd.Series:
+    """Calculate Month-over-Month percentage change."""
+    # Calculate percentage change from the same day/period one month ago
+    # This works for both daily data (30-31 day lag) and monthly data (1 period lag)
+    if isinstance(data.index, pd.DatetimeIndex):
+        # For datetime index, shift by approximately 1 month
+        result = data.pct_change(periods=30) * 100  # Approximate monthly shift for daily data
+        
+        # Try to detect frequency and adjust accordingly
+        inferred_freq = pd.infer_freq(data.index)
+        if inferred_freq:
+            if 'M' in inferred_freq or 'MS' in inferred_freq:  # Monthly data
+                result = data.pct_change(periods=1) * 100
+            elif 'Q' in inferred_freq:  # Quarterly data
+                result = data.pct_change(periods=1) * 100  # Still month-over-month concept
+            elif 'W' in inferred_freq:  # Weekly data
+                result = data.pct_change(periods=4) * 100  # ~1 month = 4 weeks
+        
+    else:
+        # For non-datetime index, assume appropriate lag based on data characteristics
+        result = data.pct_change(periods=1) * 100
+    
+    return result
+
+
+def yoy_percent(data: pd.Series) -> pd.Series:
+    """Calculate Year-over-Year percentage change."""
+    # Calculate percentage change from the same day/period one year ago
+    if isinstance(data.index, pd.DatetimeIndex):
+        # For datetime index, shift by approximately 1 year
+        result = data.pct_change(periods=365) * 100  # Approximate yearly shift for daily data
+        
+        # Try to detect frequency and adjust accordingly
+        inferred_freq = pd.infer_freq(data.index)
+        if inferred_freq:
+            if 'M' in inferred_freq or 'MS' in inferred_freq:  # Monthly data
+                result = data.pct_change(periods=12) * 100  # 12 months = 1 year
+            elif 'Q' in inferred_freq:  # Quarterly data
+                result = data.pct_change(periods=4) * 100   # 4 quarters = 1 year
+            elif 'W' in inferred_freq:  # Weekly data
+                result = data.pct_change(periods=52) * 100  # 52 weeks = 1 year
+        
+    else:
+        # For non-datetime index, assume appropriate lag
+        # Default to 12 periods (good for monthly data)
+        result = data.pct_change(periods=12) * 100
+    
+    return result
+
+
 def resample_timeseries(data: pd.DataFrame, time_col: str, value_cols: list, 
                        frequency: str = 'D', strategy: str = 'mean') -> pd.DataFrame:
     """
@@ -302,6 +352,16 @@ def get_transform_info() -> Dict[str, Dict[str, Any]]:
             "parameters": {
                 "method": {"type": "select", "options": ["linear", "constant"], "default": "linear"}
             }
+        },
+        "mom_percent": {
+            "name": "MoM %",
+            "description": "Month-over-Month percentage change (adapts to data frequency)",
+            "parameters": {}
+        },
+        "yoy_percent": {
+            "name": "YoY %", 
+            "description": "Year-over-Year percentage change (adapts to data frequency)",
+            "parameters": {}
         }
     }
 
@@ -324,5 +384,9 @@ def apply_transform(data: pd.Series, transform_type: str, **kwargs) -> pd.Series
         return exponential_smoothing(data, **kwargs)
     elif transform_type == "detrend":
         return detrend(data, **kwargs)
+    elif transform_type == "mom_percent":
+        return mom_percent(data)
+    elif transform_type == "yoy_percent":
+        return yoy_percent(data)
     else:
         raise ValueError(f"Unknown transform type: {transform_type}")

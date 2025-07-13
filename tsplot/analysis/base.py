@@ -77,6 +77,6 @@ class BaseAnalysis(ABC):
         pass
     
     @abstractmethod
-    def calculate_metrics(self) -> Dict[str, Any]:
+    def calculate_metrics(self, transform_pipeline=None, date_range=None, resample_params=None) -> Dict[str, Any]:
         """Calculate relevant statistical metrics."""
         pass
