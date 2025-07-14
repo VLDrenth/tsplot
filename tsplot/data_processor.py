@@ -17,7 +17,10 @@ class DataProcessor:
         self.numeric_cols = []
         
         for col in self.data.columns:
-            if self.data[col].dtype == 'object':
+            # Check if already datetime type or can be converted
+            if pd.api.types.is_datetime64_any_dtype(self.data[col]):
+                self.datetime_cols.append(col)
+            elif self.data[col].dtype == 'object':
                 try:
                     pd.to_datetime(self.data[col])
                     self.datetime_cols.append(col)
